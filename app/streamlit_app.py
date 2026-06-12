@@ -20,6 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from utils.visualization import radar_chart, model_comparison_bar, loss_curve
+from utils.db import init_db, create_user, authenticate_user, update_user_profile, get_user_by_id, save_test_result, get_user_test_history, delete_test_result
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -40,12 +41,6 @@ st.markdown("""
 <style>
     .main { background-color: #0e1117; }
     .stApp { background-color: #0e1117; }
-    .metric-card {
-        background: linear-gradient(135deg, #1a1d23, #252830);
-        border-radius: 12px; padding: 20px; margin: 8px 0;
-        border-left: 4px solid #636EFA;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    }
     .positive-result {
         background: linear-gradient(135deg, #3d0000, #5c0000);
         border-left: 4px solid #EF553B;
@@ -299,9 +294,10 @@ def diabetes_form():
         skin_thickness = st.number_input("Skin Thickness (mm)", 0, 100, 20)
         insulin        = st.number_input("Insulin (μU/mL)", 0, 900, 80)
         bmi            = st.number_input("BMI", 0.0, 70.0, 25.0, step=0.1)
+    user_age = st.session_state['user']['age'] if (st.session_state.get('user') and st.session_state['user'].get('age') is not None) else 30
     with c3:
         dpf = st.number_input("Diabetes Pedigree Function", 0.0, 3.0, 0.47, step=0.01)
-        age = st.number_input("Age", 1, 120, 30)
+        age = st.number_input("Age", 1, 120, user_age)
 
     form_values = {
         "Pregnancies": pregnancies, "Glucose": glucose,
@@ -317,9 +313,12 @@ def heart_form():
     st.markdown('<div class="section-header">❤️ Heart Disease Risk Assessment</div>',
                 unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
+    user_age = st.session_state['user']['age'] if (st.session_state.get('user') and st.session_state['user'].get('age') is not None) else 50
+    user_sex = st.session_state['user']['sex'] if (st.session_state.get('user') and st.session_state['user'].get('sex') is not None) else "Male"
+    default_sex_idx = 0 if user_sex != "Female" else 1
     with c1:
-        age      = st.number_input("Age", 1, 120, 50)
-        sex      = st.selectbox("Sex", ["Male (1)", "Female (0)"])
+        age      = st.number_input("Age", 1, 120, user_age)
+        sex      = st.selectbox("Sex", ["Male (1)", "Female (0)"], index=default_sex_idx)
         sex_val  = 1 if "Male" in sex else 0
         cp       = st.selectbox("Chest Pain Type (0-3)", [0, 1, 2, 3])
         trestbps = st.number_input("Resting Blood Pressure", 80, 220, 120)
@@ -353,9 +352,12 @@ def liver_form():
     st.markdown('<div class="section-header">🫀 Liver Disease Risk Assessment</div>',
                 unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
+    user_age = st.session_state['user']['age'] if (st.session_state.get('user') and st.session_state['user'].get('age') is not None) else 40
+    user_sex = st.session_state['user']['sex'] if (st.session_state.get('user') and st.session_state['user'].get('sex') is not None) else "Male"
+    default_gender_idx = 0 if user_sex != "Female" else 1
     with c1:
-        age        = st.number_input("Age", 1, 120, 40)
-        gender     = st.selectbox("Gender", ["Male (1)", "Female (0)"])
+        age        = st.number_input("Age", 1, 120, user_age)
+        gender     = st.selectbox("Gender", ["Male (1)", "Female (0)"], index=default_gender_idx)
         gender_val = 1 if "Male" in gender else 0
         tb         = st.number_input("Total Bilirubin", 0.0, 80.0, 1.0, step=0.1)
     with c2:
@@ -388,8 +390,9 @@ def kidney_form():
     st.markdown('<div class="section-header">🫘 Chronic Kidney Disease Risk Assessment</div>',
                 unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
+    user_age = st.session_state['user']['age'] if (st.session_state.get('user') and st.session_state['user'].get('age') is not None) else 45
     with c1:
-        age = st.number_input("Age", 1, 120, 45)
+        age = st.number_input("Age", 1, 120, user_age)
         bp  = st.number_input("Blood Pressure (mmHg)", 50, 200, 80)
         sg  = st.number_input("Specific Gravity", 1.000, 1.030, 1.020, step=0.001, format="%.3f")
         al  = st.selectbox("Albumin (0-5)", [0, 1, 2, 3, 4, 5])
@@ -545,6 +548,9 @@ def render_disease_page(disease: str):
         with st.spinner("Running models..."):
             results = run_predictions(disease, input_scaled)
 
+        if st.session_state.get('user'):
+            save_test_result(st.session_state['user']['id'], disease, form_values, results)
+
         render_prediction_dashboard(results, disease)
 
         st.markdown("---")
@@ -604,13 +610,11 @@ def render_home():
     ]):
         trained = models_trained(name)
         status  = "✅ Trained" if trained else "⏳ Not trained"
-        col.markdown(
-            f'<div class="metric-card">'
-            f'<div style="font-size:2em">{icon}</div>'
-            f'<b>{name}</b><br>'
-            f'<small style="color:#aaa">{dataset}</small><br>'
-            f'<small>{status}</small>'
-            f'</div>', unsafe_allow_html=True)
+        with col.container(border=True):
+            st.markdown(f"<div style='font-size: 2em;'>{icon}</div>", unsafe_allow_html=True)
+            st.markdown(f"**{name}**")
+            st.caption(dataset)
+            st.markdown(f"<small>{status}</small>", unsafe_allow_html=True)
 
     st.markdown("""
     ---
@@ -629,7 +633,245 @@ def render_home():
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Auth Page
+# ---------------------------------------------------------------------------
+def render_auth_page():
+    st.markdown('<div style="text-align: center; margin-top: 50px;">', unsafe_allow_html=True)
+    st.image("https://img.icons8.com/color/96/000000/caduceus.png", width=90)
+    st.markdown('<h1 style="color: #636EFA; font-family: \'Outfit\', sans-serif; font-weight: 800;">🏥 MedHelp</h1>', unsafe_allow_html=True)
+    st.markdown('<h4 style="color: #c9d1d9; font-weight: 400; margin-bottom: 30px;">Multiple Disease Recognition System</h4>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    _, col, _ = st.columns([1, 1.8, 1])
+    with col:
+        tab1, tab2 = st.tabs(["🔒 Log In", "📝 Sign Up"])
+
+        with tab1:
+            login_email = st.text_input("Email Address", key="login_email")
+            login_pass = st.text_input("Password", type="password", key="login_pass")
+            login_btn = st.button("Log In", type="primary", use_container_width=True)
+
+            if login_btn:
+                user = authenticate_user(login_email, login_pass)
+                if user:
+                    st.session_state['user'] = user
+                    st.success(f"Welcome back, {user['name']}!")
+                    st.rerun()
+                else:
+                    st.error("Invalid email or password.")
+
+        with tab2:
+            signup_name = st.text_input("Full Name", key="signup_name")
+            signup_email = st.text_input("Email Address", key="signup_email")
+            signup_pass = st.text_input("Password", type="password", key="signup_pass")
+            signup_confirm = st.text_input("Confirm Password", type="password", key="signup_confirm")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                signup_age = st.number_input("Age", min_value=1, max_value=120, value=30, key="signup_age")
+            with c2:
+                signup_sex = st.selectbox("Sex", ["Male", "Female", "Other"], key="signup_sex")
+
+            signup_btn = st.button("Create Account", type="primary", use_container_width=True)
+
+            if signup_btn:
+                if signup_pass != signup_confirm:
+                    st.error("Passwords do not match.")
+                elif len(signup_pass) < 6:
+                    st.error("Password must be at least 6 characters long.")
+                elif not signup_name.strip():
+                    st.error("Name is required.")
+                elif not signup_email.strip() or "@" not in signup_email:
+                    st.error("Please enter a valid email address.")
+                else:
+                    success, msg = create_user(
+                        signup_email, signup_pass, signup_name, signup_age, signup_sex
+                    )
+                    if success:
+                        st.success(msg + " Please log in using the Log In tab.")
+                    else:
+                        st.error(msg)
+
+# ---------------------------------------------------------------------------
+# Profile Page
+# ---------------------------------------------------------------------------
+def render_profile_page():
+    st.title("👤 My Profile")
+    st.subheader("Manage your personal details")
+    st.markdown("These details are automatically used to pre-fill the disease risk assessment forms.")
+
+    user = st.session_state['user']
+    user_fresh = get_user_by_id(user['id'])
+    if user_fresh:
+        st.session_state['user'] = user_fresh
+        user = user_fresh
+
+    with st.form("profile_form"):
+        name = st.text_input("Full Name", value=user['name'])
+        email = st.text_input("Email Address", value=user['email'], disabled=True)
+        st.caption("Email address cannot be changed.")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            age = st.number_input("Age", min_value=1, max_value=120, value=int(user['age']) if user['age'] is not None else 30)
+        with c2:
+            current_sex = user['sex'] if user['sex'] in ["Male", "Female", "Other"] else "Male"
+            sex_options = ["Male", "Female", "Other"]
+            sex_idx = sex_options.index(current_sex)
+            sex = st.selectbox("Sex", sex_options, index=sex_idx)
+
+        submit = st.form_submit_button("💾 Save Profile Changes", type="primary")
+        if submit:
+            success, msg = update_user_profile(user['id'], name, age, sex)
+            if success:
+                st.success(msg)
+                st.session_state['user'] = get_user_by_id(user['id'])
+                st.rerun()
+            else:
+                st.error(msg)
+
+
 def main():
+    init_db()
+
+    if 'user' not in st.session_state:
+        st.session_state['user'] = None
+
+    if st.session_state['user'] is None:
+        render_auth_page()
+        return
+
+    with st.sidebar:
+        st.image("https://img.icons8.com/color/96/000000/caduceus.png", width=80)
+        st.markdown("## MedHelp")
+        st.caption("Multiple Disease Recognition System")
+        st.markdown("---")
+
+# ---------------------------------------------------------------------------
+# Test History Page
+# ---------------------------------------------------------------------------
+def format_timestamp_to_local(utc_timestamp_str: str) -> str:
+    """Converts a UTC timestamp string (YYYY-MM-DD HH:MM:SS) to system local time."""
+    import datetime
+    try:
+        utc_dt = datetime.datetime.strptime(utc_timestamp_str, "%Y-%m-%d %H:%M:%S")
+        local_dt = utc_dt.replace(tzinfo=datetime.timezone.utc).astimezone(tz=None)
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return utc_timestamp_str
+
+
+def render_history_page():
+    st.title("⏱️ Test History")
+    st.subheader("Your past test results and clinical assessments")
+    
+    user = st.session_state['user']
+    history = get_user_test_history(user['id'])
+    
+    if not history:
+        st.info("You don't have any saved test results yet. Choose a disease prediction page from the sidebar to run a test!")
+        return
+
+    st.write(f"Showing **{len(history)}** previous assessment(s)")
+    
+    for record in history:
+        disease = record['disease']
+        icon = DISEASE_ICONS.get(disease, "🏥")
+        dt = format_timestamp_to_local(record['timestamp'])
+        
+        # Calculate consensus
+        preds = []
+        probs = []
+        for model_name, res in record['results'].items():
+            if res and len(res) == 2 and res[0] is not None:
+                preds.append(res[0])
+                probs.append(res[1])
+                
+        if preds:
+            n_positive = sum(preds)
+            n_total = len(preds)
+            avg_prob = sum(probs) / n_total
+            unanimous = (n_positive == 0 or n_positive == n_total)
+            
+            if not unanimous:
+                tier, tier_color, tier_icon = "Uncertain Case", "#f0a500", "⚠️"
+            elif avg_prob < 0.30:
+                tier, tier_color, tier_icon = "Low Risk", "#00CC96", "🟢"
+            elif avg_prob < 0.55:
+                tier, tier_color, tier_icon = "Moderate Risk", "#f0a500", "🟡"
+            else:
+                tier, tier_color, tier_icon = "High Risk", "#EF553B", "🔴"
+        else:
+            tier, tier_color, tier_icon = "No Prediction Data", "#aaa", "⚪"
+
+        # Display entry card
+        with st.container(border=True):
+            col1, col2, col3 = st.columns([2, 1.5, 1])
+            with col1:
+                st.markdown(f"### {icon} {disease}")
+                st.caption(f"Tested on: {dt}")
+            with col2:
+                st.markdown(f"<div style='font-size: 1.15em; font-weight: bold; color: {tier_color}; margin-top: 8px;'>{tier_icon} {tier}</div>", unsafe_allow_html=True)
+                if preds:
+                    st.caption(f"Average Risk: {round(avg_prob * 100, 1)}%")
+            with col3:
+                delete_btn = st.button("🗑️ Delete", key=f"del_{record['id']}", type="secondary", use_container_width=True)
+                if delete_btn:
+                    success, msg = delete_test_result(record['id'], user['id'])
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            
+            # Details Expander
+            with st.expander("🔍 View Details"):
+                st.markdown("##### Model Predictions")
+                m_cols = st.columns(3)
+                for idx, (m_name, m_res) in enumerate(record['results'].items()):
+                    if m_res and len(m_res) == 2 and m_res[0] is not None:
+                        pred, prob = m_res
+                        label = "⚠️ Positive" if pred == 1 else "✅ Negative"
+                        css_color = "#EF553B" if pred == 1 else "#00CC96"
+                        with m_cols[idx]:
+                            st.markdown(f"**{m_name}**")
+                            st.markdown(f"<span style='color: {css_color}; font-weight: bold;'>{label}</span> ({round(prob * 100, 1)}% risk)", unsafe_allow_html=True)
+                    else:
+                        with m_cols[idx]:
+                            st.markdown(f"**{m_name}**")
+                            st.caption("No data")
+                
+                st.markdown("---")
+                st.markdown("##### Submitted Input Parameters")
+                
+                inputs = record['inputs']
+                input_keys = list(inputs.keys())
+                num_inputs = len(input_keys)
+                num_cols = min(4, num_inputs)
+                cols_inputs = st.columns(num_cols)
+                
+                for idx, key in enumerate(input_keys):
+                    col_idx = idx % num_cols
+                    with cols_inputs[col_idx]:
+                        val = inputs[key]
+                        if key.lower() == "sex" or key.lower() == "gender":
+                            val_str = "Male" if val == 1 else "Female" if val == 0 else str(val)
+                        else:
+                            val_str = str(val)
+                        st.markdown(f"<small style='color: #aaa;'>{key}</small><br><b>{val_str}</b>", unsafe_allow_html=True)
+
+
+def main():
+    init_db()
+
+    if 'user' not in st.session_state:
+        st.session_state['user'] = None
+
+    if st.session_state['user'] is None:
+        render_auth_page()
+        return
+
     with st.sidebar:
         st.image("https://img.icons8.com/color/96/000000/caduceus.png", width=80)
         st.markdown("## MedHelp")
@@ -638,8 +880,8 @@ def main():
 
         selected = option_menu(
             menu_title=None,
-            options=["Home","Diabetes","Heart Disease","Liver Disease","Kidney Disease"],
-            icons=["house-fill","droplet-fill","heart-fill","activity","capsule"],
+            options=["Home", "My Profile", "Test History", "Diabetes", "Heart Disease", "Liver Disease", "Kidney Disease"],
+            icons=["house-fill", "person-fill", "clock-history", "droplet-fill", "heart-fill", "activity", "capsule"],
             default_index=0,
             styles={
                 "container":        {"background-color": "#1a1d23"},
@@ -652,10 +894,23 @@ def main():
         )
 
         st.markdown("---")
+        user = st.session_state['user']
+        st.markdown(f"👤 **{user['name']}**")
+        st.caption(f"📧 {user['email']}")
+        
+        if st.button("🚪 Log Out", use_container_width=True):
+            st.session_state['user'] = None
+            st.rerun()
+
+        st.markdown("---")
         st.caption("Built with ❤️ using pure NumPy ML")
 
     if selected == "Home":
         render_home()
+    elif selected == "My Profile":
+        render_profile_page()
+    elif selected == "Test History":
+        render_history_page()
     else:
         render_disease_page(selected)
 
