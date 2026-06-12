@@ -752,11 +752,24 @@ def main():
 # Test History Page
 # ---------------------------------------------------------------------------
 def format_timestamp_to_local(utc_timestamp_str: str) -> str:
-    """Converts a UTC timestamp string (YYYY-MM-DD HH:MM:SS) to system local time."""
+    """Converts a UTC timestamp string (YYYY-MM-DD HH:MM:SS) to the browser's local time."""
     import datetime
+    from zoneinfo import ZoneInfo
     try:
         utc_dt = datetime.datetime.strptime(utc_timestamp_str, "%Y-%m-%d %H:%M:%S")
-        local_dt = utc_dt.replace(tzinfo=datetime.timezone.utc).astimezone(tz=None)
+        utc_dt = utc_dt.replace(tzinfo=datetime.timezone.utc)
+        
+        # Try browser timezone from Streamlit context
+        try:
+            tz_name = st.context.timezone
+            if tz_name:
+                local_dt = utc_dt.astimezone(ZoneInfo(tz_name))
+                return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+            
+        # Fallback to local system timezone
+        local_dt = utc_dt.astimezone(tz=None)
         return local_dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return utc_timestamp_str
